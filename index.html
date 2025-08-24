@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -112,7 +111,7 @@
         .hero-overlay { position: absolute; inset: 0; background: rgba(0,0,0,.32); }
         .hero-inner { position: relative; z-index: 2; max-width: 64rem; margin: 0 auto; }
         .hero h1 {
-            font-family: 'Press Start 2P', cursive; font-size: 3rem; line-height: 1; font-weight: 900; margin: 0;
+            font-family: 'Press Start 2P', cursive; font-size: clamp(2.25rem, 8vw, 6rem); line-height: 1; font-weight: 900; margin: 0;
             background: linear-gradient(90deg, #e879f9, #7dd3fc, #22d3ee);
             -webkit-background-clip: text; background-clip: text; color: transparent;
             animation: neon-glitch-pulse 4s infinite alternate ease-in-out;
@@ -223,6 +222,28 @@
         @keyframes dot-pulse { 0% { transform: scale(1); opacity: .6; } 50% { transform: scale(1.3); opacity: 1; } 100% { transform: scale(1); opacity: .6; } }
         @keyframes fade-in-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* Mobile nav + responsive tweaks */
+        .menu-btn { display: none; background: transparent; border: 0; color: #e5e7eb; font-size: 1.5rem; cursor: pointer; padding: .5rem; border-radius: .5rem; }
+        .menu-btn:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; }
+        @media (max-width: 767px) {
+            nav { position: absolute; right: 1rem; top: 100%; display: none; flex-direction: column; align-items: flex-start; gap: .75rem; background: rgba(24,24,27,0.95); border: 1px solid #3f3f46; border-radius: .75rem; padding: 1rem; width: calc(100% - 2rem); max-width: 18rem; }
+            header.open nav { display: flex; }
+            nav a { margin: 0; font-size: 1rem; padding-bottom: 2px; }
+            .header-inner { position: relative; }
+            .menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+        }
+        /* Card media aspect ratio for responsiveness */
+        .card-media { position: relative; width: 100%; height: auto; aspect-ratio: 16/9; background: #0f172a; overflow: hidden; }
+        .card-media img { width: 100%; height: 100%; object-fit: cover; object-position: center; animation: image-fade-in .5s ease-out forwards; }
+        @media (max-width: 480px) {
+            .icon-btn { font-size: 2.25rem; }
+            .cta-btn { padding: 1.25rem 2rem; }
+        }
+        /* Hide custom cursor on touch/coarse pointers */
+        @media (hover: none), (pointer: coarse) {
+            body { cursor: auto; }
+            .cursor-dot, .cursor-ring { display: none; }
+        }
         /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
             * { animation: none !important; transition: none !important; }
@@ -240,6 +261,7 @@
     <header>
         <div class="header-inner">
             <div class="brand text-gradient" style="font-family: 'Press Start 2P', cursive;">P11Games</div>
+            <button class="menu-btn" id="menu-btn" aria-label="Open menu" aria-expanded="false"><i class="fas fa-bars"></i></button>
             <nav>
                 <a href="#portfolio">Portfolio</a>
                 <a href="#about">About</a>
@@ -349,13 +371,13 @@
             window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
         })();
 
-        // Three.js interactive background
+        // Three.js interactive background (multi-layer starfield with glow sprites)
         function initThreeDBackground() {
             const mount = document.getElementById('three-d-background');
             if (!mount) return;
             if (typeof THREE === 'undefined') { mount.innerHTML = '<p style="color: red; text-align: center; margin-top: 50px;">3D background could not load. Check internet connection.</p>'; return; }
 
-            let camera, scene, renderer, particles; let animationId; let disposed = false;
+            let camera, scene, renderer, starLayers = []; let animationId; let disposed = false;
             let mouseX = 0, mouseY = 0; let cameraOrbit = 0;
             const DPR = Math.min(1.75, window.devicePixelRatio || 1);
             const isMobile = /Mobi|Android/i.test(navigator.userAgent);
@@ -363,38 +385,47 @@
             // Clear existing
             while (mount.firstChild) mount.removeChild(mount.firstChild);
 
-            camera = new THREE.PerspectiveCamera(75, mount.clientWidth / mount.clientHeight, 1, 1000);
-            camera.position.z = 150;
+            camera = new THREE.PerspectiveCamera(70, mount.clientWidth / mount.clientHeight, 1, 2000);
+            camera.position.z = 220;
 
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x000000, 0.0007);
+            scene.fog = new THREE.FogExp2(0x000000, 0.0006);
 
-            const baseCount = isMobile ? 6000 : 16000; // adaptive particle count
-            const particleCount = prefersReduced ? 0 : baseCount;
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(particleCount * 3);
-            const colors = new Float32Array(particleCount * 3);
-            const velocities = new Float32Array(particleCount * 3);
-            const color = new THREE.Color();
+            // Star layers (parallax)
+            const layersConfig = prefersReduced ? [] : [
+                { count: isMobile ? 1500 : 4000, size: 2.0, depth: 900, speed: 0.06, hue: 0.55 },
+                { count: isMobile ? 1000 : 3000, size: 3.2, depth: 700, speed: 0.09, hue: 0.78 },
+                { count: isMobile ? 600 : 2000, size: 4.5, depth: 500, speed: 0.14, hue: 0.9 }
+            ];
 
-            for (let i = 0; i < particleCount; i++) {
-                positions[i*3] = (Math.random()*2-1) * 800;
-                positions[i*3+1] = (Math.random()*2-1) * 800;
-                positions[i*3+2] = (Math.random()*2-1) * 800;
-                color.setHSL(Math.random(), 0.9, 0.7 + Math.random()*0.2);
-                colors[i*3] = color.r; colors[i*3+1] = color.g; colors[i*3+2] = color.b;
-                velocities[i*3] = (Math.random()*2-1) * (0.12 + Math.random()*0.08);
-                velocities[i*3+1] = (Math.random()*2-1) * (0.12 + Math.random()*0.08);
-                velocities[i*3+2] = (Math.random()*2-1) * (0.12 + Math.random()*0.08);
-            }
+            const tempColor = new THREE.Color();
+            layersConfig.forEach(cfg => {
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(cfg.count * 3);
+                const colors = new Float32Array(cfg.count * 3);
+                for (let i = 0; i < cfg.count; i++) {
+                    positions[i*3] = (Math.random()*2-1) * cfg.depth;
+                    positions[i*3+1] = (Math.random()*2-1) * cfg.depth;
+                    positions[i*3+2] = (Math.random()*2-1) * cfg.depth;
+                    tempColor.setHSL((cfg.hue + Math.random()*0.1)%1, 0.9, 0.65 + Math.random()*0.2);
+                    colors[i*3] = tempColor.r; colors[i*3+1] = tempColor.g; colors[i*3+2] = tempColor.b;
+                }
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                const material = new THREE.PointsMaterial({ size: cfg.size, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95 });
+                const points = new THREE.Points(geometry, material);
+                points.userData = { speed: cfg.speed, depth: cfg.depth };
+                scene.add(points);
+                starLayers.push(points);
+            });
 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            geometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
-
-            const material = new THREE.PointsMaterial({ size: 6, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, opacity: 1.0 });
-            particles = new THREE.Points(geometry, material);
-            scene.add(particles);
+            // Glow sprite planet
+            const glowTexture = new THREE.TextureLoader().load('https://assets.codepen.io/13471/sparkles.png');
+            const glowMaterial = new THREE.SpriteMaterial({ map: glowTexture, color: 0x7dd3fc, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.35, depthWrite: false });
+            const glow = new THREE.Sprite(glowMaterial);
+            glow.scale.set(500, 500, 1);
+            glow.position.set(0, 0, -200);
+            scene.add(glow);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
             renderer.setPixelRatio(DPR);
@@ -405,32 +436,42 @@
             function onMouseMove(e){ mouseX = (e.clientX - windowHalfX) * 0.1; mouseY = (e.clientY - windowHalfY) * 0.1; }
             window.addEventListener('mousemove', onMouseMove, { passive: true });
 
+            // Touch tilt
+            window.addEventListener('deviceorientation', (e)=>{
+                if (!e.beta && !e.gamma) return;
+                mouseX = (e.gamma || 0) * 3; mouseY = (e.beta || 0) * 1.5;
+            }, { passive: true });
+
             function animate(){
                 animationId = requestAnimationFrame(animate);
                 camera.position.x += (mouseX - camera.position.x) * .002;
                 camera.position.y += (-mouseY - camera.position.y) * .002;
-                cameraOrbit += 0.00028; camera.position.x += Math.sin(cameraOrbit) * 1.3; camera.position.y += Math.cos(cameraOrbit) * 1.3;
-                camera.position.z = 150 + Math.sin(cameraOrbit*1.25) * 18;
+                cameraOrbit += 0.00035; camera.position.x += Math.sin(cameraOrbit) * 1.6; camera.position.y += Math.cos(cameraOrbit) * 1.2;
+                camera.position.z = 220 + Math.sin(cameraOrbit*1.2) * 20;
                 camera.lookAt(scene.position);
 
-                if (particles) {
-                    const pos = geometry.attributes.position.array; const vel = geometry.attributes.velocity.array;
-                    for (let i=0; i<particleCount; i++) {
-                        const ox = i*3; pos[ox] += vel[ox]; pos[ox+1] += vel[ox+1]; pos[ox+2] += vel[ox+2];
-                        if (pos[ox] > 400) pos[ox] = -400; if (pos[ox] < -400) pos[ox] = 400;
-                        if (pos[ox+1] > 400) pos[ox+1] = -400; if (pos[ox+1] < -400) pos[ox+1] = 400;
-                        if (pos[ox+2] > 400) pos[ox+2] = -400; if (pos[ox+2] < -400) pos[ox+2] = 400;
+                starLayers.forEach(points => {
+                    const pos = points.geometry.attributes.position.array;
+                    const speed = points.userData.speed;
+                    for (let i = 0; i < pos.length; i+=3) {
+                        pos[i] += (Math.sin((i+cameraOrbit)*0.0002) * speed);
+                        pos[i+1] += (Math.cos((i+cameraOrbit)*0.00015) * speed);
+                        pos[i+2] += (Math.sin((i+cameraOrbit)*0.0001) * speed);
+                        const d = points.userData.depth * 0.6;
+                        if (pos[i] > d) pos[i] = -d; if (pos[i] < -d) pos[i] = d;
+                        if (pos[i+1] > d) pos[i+1] = -d; if (pos[i+1] < -d) pos[i+1] = d;
+                        if (pos[i+2] > d) pos[i+2] = -d; if (pos[i+2] < -d) pos[i+2] = d;
                     }
-                    geometry.attributes.position.needsUpdate = true;
-                    particles.rotation.x += 0.00028; scene.rotation.y += 0.0001; particles.rotation.z += 0.00018;
-                }
+                    points.geometry.attributes.position.needsUpdate = true;
+                    points.rotation.x += 0.00015; points.rotation.y += 0.00018;
+                });
+                glow.material.opacity = 0.28 + Math.sin(performance.now()*0.001) * 0.07;
                 renderer.render(scene, camera);
             }
 
             function onResize(){ if (!renderer) return; camera.aspect = mount.clientWidth / mount.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(mount.clientWidth, mount.clientHeight); }
             window.addEventListener('resize', onResize);
 
-            // Pause when tab hidden
             const onVisibility = () => {
                 if (document.hidden) { cancelAnimationFrame(animationId); } else if (!prefersReduced) { animate(); }
             };
@@ -438,12 +479,11 @@
 
             animate();
 
-            // Cleanup on page unload
             window.addEventListener('beforeunload', ()=>{
                 disposed = true; cancelAnimationFrame(animationId); window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('resize', onResize); document.removeEventListener('visibilitychange', onVisibility);
                 if (renderer) { renderer.dispose?.(); renderer.forceContextLoss?.(); }
-                if (geometry) { geometry.dispose(); }
-                if (material) { material.dispose(); }
+                starLayers.forEach(p => { p.geometry.dispose(); p.material.dispose(); });
+                glowMaterial.dispose();
             }, { once: true });
         }
 
@@ -512,7 +552,7 @@
 
                 cardDiv.innerHTML = `
                     <div class="card-media">
-                        <img src="${game.images[currentImageIndex]}" alt="${game.title} Screenshot 1" onerror="this.onerror=null;this.src='https://placehold.co/800x450/1f2937/d1d5db?text=Image+Not+Found'">
+                        <img loading="lazy" src="${game.images[currentImageIndex]}" alt="${game.title} Screenshot 1" onerror="this.onerror=null;this.src='https://placehold.co/800x450/1f2937/d1d5db?text=Image+Not+Found'">
                         ${game.images.length > 1 ? `
                         <div class="card-controls">
                             <button class="ctrl-btn prev" aria-label="Previous Image"><i class="fas fa-chevron-left"></i></button>
@@ -544,6 +584,21 @@
                     else if (watchBtn && game.videoUrl) { e.stopPropagation(); openVideoModal(game.videoUrl); }
                 });
 
+                // Touch swipe support
+                (function enableSwipe(){
+                    let touchStartX = 0; let touchEndX = 0; let touchStartY = 0; let touchEndY = 0; const threshold = 40;
+                    cardDiv.addEventListener('touchstart', (e)=>{ const t=e.changedTouches[0]; touchStartX=t.clientX; touchStartY=t.clientY; }, { passive: true });
+                    cardDiv.addEventListener('touchmove', (e)=>{ const t=e.changedTouches[0]; touchEndX=t.clientX; touchEndY=t.clientY; }, { passive: true });
+                    cardDiv.addEventListener('touchend', ()=>{
+                        const dx = touchEndX - touchStartX; const dy = Math.abs(touchEndY - touchStartY);
+                        if (Math.abs(dx) > threshold && dy < 60) {
+                            if (dx < 0) { currentImageIndex = (currentImageIndex === game.images.length - 1) ? 0 : currentImageIndex + 1; }
+                            else { currentImageIndex = (currentImageIndex === 0) ? game.images.length - 1 : currentImageIndex - 1; }
+                            updateImage();
+                        }
+                    }, { passive: true });
+                })();
+
                 container.appendChild(cardDiv);
             });
         }
@@ -555,6 +610,26 @@
         function openVideoModal(videoUrl) { if (!videoModal) return; modalVideoIframe.src = videoUrl; videoModal.classList.add('open'); document.body.style.overflow = 'hidden'; }
         function closeVideoModal() { if (!videoModal) return; modalVideoIframe.src = ''; videoModal.classList.remove('open'); document.body.style.overflow = ''; }
         closeVideoModalBtn?.addEventListener('click', closeVideoModal);
+
+        // Mobile menu toggle
+        (function mobileMenu(){
+            const header = document.querySelector('header');
+            const btn = document.getElementById('menu-btn');
+            const nav = header?.querySelector('nav');
+            if (!header || !btn || !nav) return;
+            btn.addEventListener('click', ()=>{
+                const open = header.classList.toggle('open');
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                btn.innerHTML = open ? '<i class="fas fa-times"></i>' : '<i class="fas fa-bars"></i>';
+            });
+            nav.addEventListener('click', (e)=>{
+                const a = e.target.closest('a');
+                if (!a) return;
+                header.classList.remove('open');
+                btn.setAttribute('aria-expanded', 'false');
+                btn.innerHTML = '<i class="fas fa-bars"></i>';
+            });
+        })();
 
         // Smooth scroll for nav links
         document.addEventListener('click', (e)=>{
@@ -585,6 +660,8 @@
         (function tiltInit(){
             const tiltables = document.querySelectorAll('[data-tilt]');
             const maxRotate = 7; const scale = 1.02;
+            const isCoarse = window.matchMedia('(hover: none), (pointer: coarse)').matches;
+            if (isCoarse) return; // disable on touch devices
             tiltables.forEach(el => {
                 let rect; let rafId; let leaveTimeout;
                 const onMove = (e)=>{
@@ -638,13 +715,9 @@
             revealables.forEach(el => io.observe(el));
         })();
 
-        // Three.js loader with CDN fallbacks
+        // Three.js loader with CDN fallbacks then init
         function loadScript(url){
-            return new Promise((resolve, reject)=>{
-                const s = document.createElement('script');
-                s.src = url; s.async = true; s.onload = ()=> resolve(true); s.onerror = (e)=> reject(e);
-                document.head.appendChild(s);
-            });
+            return new Promise((resolve, reject)=>{ const s = document.createElement('script'); s.src = url; s.async = true; s.onload = ()=> resolve(true); s.onerror = reject; document.head.appendChild(s); });
         }
         async function ensureThreeLoaded(){
             if (typeof THREE !== 'undefined') return true;
@@ -653,17 +726,9 @@
                 'https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js',
                 'https://unpkg.com/three@0.152.2/build/three.min.js'
             ];
-            for (const url of cdns){
-                try {
-                    await loadScript(url);
-                    if (typeof THREE !== 'undefined') return true;
-                } catch (err) {
-                    console.error('Failed to load THREE from', url, err);
-                }
-            }
+            for (const url of cdns){ try { await loadScript(url); if (typeof THREE !== 'undefined') return true; } catch(e){} }
             return false;
         }
-
         // Init
         window.addEventListener('load', async function(){
             const loaded = await ensureThreeLoaded();
